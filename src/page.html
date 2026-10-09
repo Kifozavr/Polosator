@@ -1,0 +1,351 @@
+<title>Полосатор</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the layout is the only saturated thing on screen; the studio around it is a lilac-biased grey lightbox.
+   Brand face F37 Holborn is embedded below and also drives the UI. */
+:root {
+  --bg: #E7E5EC;
+  --stage: #D7D4DF;
+  --panel: #F4F3F7;
+  --field: #FFFFFF;
+  --ink: #18151F;
+  --muted: #69637A;
+  --line: #D0CBDA;
+  --accent: #6B3DF0;
+  --accent-ink: #FFFFFF;
+  --warn: #9A4A00;
+  --ok: #1E7A55;
+  --sel: #2F7BFF;
+  --shadow: 0 18px 50px -18px rgba(30, 20, 60, .45);
+  --f-ui: "F37 Holborn UI", "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16141C; --stage: #0E0D13; --panel: #1D1B24; --field: #29262F; --ink: #ECEAF2; --muted: #9D97AE;
+    --line: #36323F; --accent: #B391FF; --accent-ink: #160D2E; --warn: #F0A860; --ok: #6FD3A8; --sel: #6FA6FF;
+    --shadow: 0 18px 50px -18px rgba(0, 0, 0, .8); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #16141C; --stage: #0E0D13; --panel: #1D1B24; --field: #29262F; --ink: #ECEAF2; --muted: #9D97AE;
+  --line: #36323F; --accent: #B391FF; --accent-ink: #160D2E; --warn: #F0A860; --ok: #6FD3A8; --sel: #6FA6FF;
+  --shadow: 0 18px 50px -18px rgba(0, 0, 0, .8); color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--f-ui); -webkit-font-smoothing: antialiased; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 392px; height: 100%; }
+.left { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; padding-block: 18px; padding-inline: 22px; }
+.top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.mark { display: flex; align-items: center; gap: 10px; margin: 0; font: 500 21px/1 var(--f-ui); letter-spacing: -.01em; }
+.mark svg { width: 26px; height: 22px; flex: none; }
+.sub { margin: 0; color: var(--muted); font: 400 12px/1.2 var(--f-mono); letter-spacing: .02em; }
+
+.stage { flex: 1; min-height: 0; display: grid; place-items: center; container-type: size; background: var(--stage); border-radius: var(--r); }
+.frame { --aw: 1920; --ah: 1080; position: relative; aspect-ratio: var(--aw) / var(--ah);
+  width: min(100cqw - 36px, (100cqh - 36px) * var(--aw) / var(--ah)); max-width: 100%;
+  box-shadow: var(--shadow); touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; border-radius: 2px; }
+.frame canvas { display: block; width: 100%; height: 100%; background: var(--stage); }
+.frame.grab { cursor: grab; } .frame.dragging { cursor: grabbing; } .frame.rs { cursor: nwse-resize; }
+.ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.ov .sel { fill: none; stroke: var(--sel); stroke-width: 1.5; stroke-dasharray: 6 5; vector-effect: non-scaling-stroke; }
+.ov .hd { fill: #fff; stroke: var(--sel); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.ov .cross { stroke: var(--sel); stroke-width: 1.5; vector-effect: non-scaling-stroke; fill: none; }
+.ov .dot { fill: #fff; stroke: var(--sel); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.frame:not(:hover):not(.dragging) .ov .idle { opacity: 0; }
+.ov g { transition: opacity .15s; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--stage); color: var(--muted); font: 400 12px var(--f-mono); }
+
+.bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.scrub { flex: 1 1 160px; min-width: 120px; display: flex; align-items: center; gap: 8px; }
+.scrub input { flex: 1; min-width: 0; }
+.scrub output { font: 400 12px var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; min-width: 46px; text-align: right; }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 15px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); font-weight: 500; white-space: nowrap; transition: background .12s, border-color .12s, transform .06s; }
+.btn:hover { border-color: var(--muted); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; padding: 0 13px; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.small { height: 32px; padding: 0 11px; font-size: 12.5px; }
+.btn svg { width: 12px; height: 12px; fill: currentColor; flex: none; }
+.btn small { font: 400 11px var(--f-mono); opacity: .8; }
+.status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 34px; padding: 6px 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; }
+.status.warn { color: var(--warn); border-color: currentColor; }
+.status.done { color: var(--ok); }
+.status #statusText { font-variant-numeric: tabular-nums; }
+.pbar { flex: 1; min-width: 120px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.pbar > div { height: 100%; width: 0; background: var(--accent); }
+.link { background: none; border: 0; padding: 4px 2px; color: var(--accent); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+
+.panel { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+.tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border-bottom: 1px solid var(--line); flex: none; padding-top: 4px; }
+.tabs button { height: 46px; border: 0; background: none; color: var(--muted); font: 500 13px var(--f-ui); border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 0 4px; }
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.panes { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.pane { display: flex; flex-direction: column; gap: 22px; padding-block: 18px 30px; padding-inline: 18px; }
+.group { display: flex; flex-direction: column; gap: 12px; }
+.group > h2 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0; font: 500 11px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.group > p, .pane > p { margin: 0; color: var(--muted); font-size: 12.5px; }
+hr.sep { border: 0; border-top: 1px solid var(--line); margin: 0; }
+
+.rows { display: flex; flex-direction: column; gap: 13px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 10px; row-gap: 5px; }
+.row label { font-size: 13px; }
+.row output { font: 400 12px var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: 0; background: none; --p: 50%; }
+.row input[type="range"] { grid-column: 1 / -1; }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--field); border: 2px solid var(--accent); }
+input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--field); border: 2px solid var(--accent); }
+.off { opacity: .4; pointer-events: none; }
+.panel[inert] { opacity: .55; }
+
+.seg { display: flex; flex-wrap: wrap; padding: 3px; gap: 2px; border-radius: 8px; background: var(--field); border: 1px solid var(--line); }
+.seg button { flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+.seg.many { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.seg.many button { padding: 0 4px; overflow: hidden; text-overflow: ellipsis; }
+.seg button:disabled { opacity: .35; cursor: not-allowed; }
+.lbl { font-size: 13px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+textarea, .inp { width: 100%; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--line); background: var(--field); resize: vertical; font-size: 14px; line-height: 1.35; }
+textarea:focus, .inp:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+textarea { min-height: 62px; }
+.check { display: flex; align-items: center; gap: 10px; font-size: 13px; cursor: pointer; }
+.check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.sub-rows { display: flex; flex-direction: column; gap: 12px; padding-left: 26px; }
+
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cards.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card { position: relative; display: flex; flex-direction: column; padding: 0; text-align: left; background: var(--field); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.card canvas { display: block; width: 100%; aspect-ratio: 4 / 3; height: auto; }
+.card .cname { padding: 6px 8px 7px; font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card:hover { border-color: var(--muted); }
+.card[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent); }
+.lay canvas { aspect-ratio: 16 / 10; }
+.themes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.theme { display: flex; flex-direction: column; padding: 0; background: var(--field); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; text-align: left; }
+.theme .sw { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; height: 30px; }
+.theme .sw i { display: block; }
+.theme span { padding: 5px 8px 6px; font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.theme:hover { border-color: var(--muted); }
+.theme[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent); }
+.colors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.color { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
+.color input { width: 100%; height: 34px; padding: 2px; border-radius: 8px; border: 1px solid var(--line); background: var(--field); cursor: pointer; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); padding: 0; }
+.chip:hover { transform: scale(1.08); }
+.note { font-size: 12.5px; color: var(--muted); margin: 0; }
+.note.warn { color: var(--warn); }
+.mono { font: 400 12px var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.file:focus-visible + .btn { outline: 2px solid var(--accent); outline-offset: 2px; }
+.inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.thumb { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line); background: var(--field); }
+.narrow { display: none; }
+
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  .app { display: block; height: auto; }
+  .left { padding-inline: 16px; padding-block: 12px; gap: 10px; }
+  .stage { flex: none; container-type: inline-size; background: none; }
+  .frame { width: min(100%, 560px); margin-inline: auto; }
+  .bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .bar .scrub { grid-column: 1 / -1; }
+  .btn { justify-content: center; padding: 0 6px; height: 36px; gap: 6px; }
+  .btn small, .wide { display: none; }
+  .narrow { display: inline; }
+  .panel { border-left: 0; border-top: 1px solid var(--line); }
+  .panes { overflow: visible; }
+  .pane { padding-inline: 16px; }
+  .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="app">
+  <main class="left">
+    <header class="top">
+      <h1 class="mark"><svg viewBox="0 0 26 22" aria-hidden="true"><rect x="0" y="0" width="1.6" height="22" fill="#A872FF"/><rect x="4" y="0" width="2.4" height="22" fill="#A872FF"/><rect x="8.8" y="0" width="3.4" height="22" fill="#A872FF"/><rect x="14.6" y="0" width="4.4" height="22" fill="#A872FF"/><rect x="21.2" y="0" width="4.8" height="22" fill="#A872FF"/></svg>Полосатор</h1>
+      <p class="sub" id="sub">PremiumBonus · макеты с полосами</p>
+    </header>
+
+    <div class="stage">
+      <div class="frame" id="frame">
+        <canvas id="cv" role="img" aria-label="Предпросмотр макета"></canvas>
+        <svg class="ov" id="ov" aria-hidden="true"></svg>
+        <div class="loading" id="loading">загружаю шрифт…</div>
+      </div>
+    </div>
+
+    <div class="bar">
+      <button type="button" class="btn" id="btnPlay" aria-pressed="true" title="Пробел">
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path id="playIcon" d="M2 1h3v10H2zM7 1h3v10H7z"/></svg><span id="btnPlayLabel" class="wide">Пауза</span>
+      </button>
+      <label class="scrub" title="Кадр цикла: на паузе выбирает кадр для PNG и SVG"><input type="range" id="scrub" min="0" max="1" step="0.001" value="0" aria-label="Кадр цикла"><output id="scrubOut">0,0 с</output></label>
+      <button type="button" class="btn primary" id="btnPng"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M5 0h2v6h3L6 10 2 6h3zM1 11h10v1H1z"/></svg>PNG <small id="btnPngSize"></small></button>
+      <button type="button" class="btn primary" id="btnSvg" title="Векторный файл текущего кадра, текст в кривых"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M5 0h2v6h3L6 10 2 6h3zM1 11h10v1H1z"/></svg>SVG</button>
+      <button type="button" class="btn primary" id="btnVid"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M5 0h2v6h3L6 10 2 6h3zM1 11h10v1H1z"/></svg><span class="wide">Видео</span><span class="narrow">Вид.</span> <small id="btnVidFmt">MP4</small></button>
+      <button type="button" class="btn primary" id="btnGif"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M5 0h2v6h3L6 10 2 6h3zM1 11h10v1H1z"/></svg>GIF</button>
+    </div>
+    <div class="status" id="status" hidden role="status" aria-live="polite">
+      <span id="statusText"></span>
+      <div class="pbar" id="statusBar" hidden><div id="statusFill"></div></div>
+      <button type="button" class="link" id="btnCancel" hidden>Остановить</button>
+      <button type="button" class="link" id="btnRetry" hidden>Сохранить ещё раз</button>
+    </div>
+  </main>
+
+  <aside class="panel">
+    <div class="tabs" role="tablist" aria-label="Разделы настроек" id="tabs">
+      <button type="button" role="tab" data-tab="move" aria-selected="true">Приём</button>
+      <button type="button" role="tab" data-tab="text" aria-selected="false">Текст</button>
+      <button type="button" role="tab" data-tab="photo" aria-selected="false">Фото</button>
+      <button type="button" role="tab" data-tab="color" aria-selected="false">Цвет</button>
+      <button type="button" role="tab" data-tab="format" aria-selected="false">Формат</button>
+    </div>
+    <div class="panes">
+      <!-- ───────── MOVE ───────── -->
+      <section class="pane" role="tabpanel" aria-label="Приём" data-pane="move">
+        <div class="group">
+          <h2>Полосатый приём <span class="mono" id="presetName"></span></h2>
+          <div class="cards" id="presetCards"></div>
+          <div class="inline"><button type="button" class="btn small" id="btnSeed">Другой рисунок</button><button type="button" class="btn small" id="btnResetMove">Вернуть настройки приёма</button></div>
+        </div>
+        <div id="moveControls" class="rows"></div>
+      </section>
+
+      <!-- ───────── TEXT ───────── -->
+      <section class="pane" role="tabpanel" aria-label="Текст" data-pane="text" hidden>
+        <div class="group">
+          <h2>Набор</h2>
+          <div class="seg" id="segTextMode" role="group" aria-label="Сколько текста"></div>
+        </div>
+        <div class="group" id="grpTitle">
+          <h2>Заголовок</h2>
+          <textarea id="txtTitle" rows="2" spellcheck="false" aria-label="Заголовок"></textarea>
+          <div class="rows" id="slTitle"></div>
+          <div class="field"><span class="lbl">Начертание</span><div class="seg" id="segWeight" role="group" aria-label="Начертание заголовка"></div></div>
+          <div class="field"><span class="lbl">Где стоит текст</span><div class="seg" id="segTextPos" role="group" aria-label="Положение текста"></div></div>
+        </div>
+        <div class="group" id="grpSub">
+          <h2>Подзаголовок</h2>
+          <textarea id="txtSub" rows="2" spellcheck="false" aria-label="Подзаголовок"></textarea>
+        </div>
+        <div class="group" id="grpExtra">
+          <h2>Дополнительно</h2>
+          <label class="check"><input type="checkbox" id="chkEyebrow"> Метка над текстом</label>
+          <div class="sub-rows" id="eyebrowOpts"><input class="inp" id="txtEyebrow" type="text" spellcheck="false" aria-label="Текст метки"></div>
+          <label class="check"><input type="checkbox" id="chkWeb"> Дата и время вебинара</label>
+          <div class="sub-rows" id="webOpts">
+            <input class="inp" id="txtWebLabel" type="text" spellcheck="false" aria-label="Подпись, например «Вебинар»" placeholder="Вебинар">
+            <div class="field2"><input class="inp" id="txtWebDate" type="text" spellcheck="false" aria-label="Дата" placeholder="23 октября"><input class="inp" id="txtWebTime" type="text" spellcheck="false" aria-label="Время" placeholder="11:00 МСК"></div>
+            <div class="seg" id="segWebStyle" role="group" aria-label="Вид блока с датой"></div>
+          </div>
+        </div>
+        <div class="group">
+          <h2>Логотип</h2>
+          <div class="inline">
+            <input class="file" type="file" id="logoFile" accept="image/png,image/svg+xml,image/jpeg,image/webp">
+            <label class="btn small" for="logoFile">Загрузить логотип</label>
+            <button type="button" class="btn small" id="btnLogoDel" hidden>Убрать</button>
+          </div>
+          <div class="rows" id="logoOpts">
+            <div class="seg" id="segLogoPos" role="group" aria-label="Угол логотипа"></div>
+            <div class="rows" id="slLogo"></div>
+          </div>
+          <p class="note">PNG или SVG с прозрачным фоном. Логотип можно двигать прямо на макете.</p>
+        </div>
+      </section>
+
+      <!-- ───────── PHOTO ───────── -->
+      <section class="pane" role="tabpanel" aria-label="Фото" data-pane="photo" hidden>
+        <div class="group">
+          <h2>Фото</h2>
+          <div class="inline">
+            <img class="thumb" id="photoThumb" alt="" hidden>
+            <input class="file" type="file" id="photoFile" accept="image/*">
+            <label class="btn small" for="photoFile" id="photoBtnLabel">Добавить фото</label>
+            <button type="button" class="btn small" id="btnPhotoDel" hidden>Убрать</button>
+          </div>
+          <p class="note" id="photoNote">JPG, PNG или WebP. Фото с прозрачным фоном (вырезанный человек) встаёт прямо на полосы.</p>
+        </div>
+        <div class="group" id="photoOpts">
+          <div class="field"><span class="lbl">Полосы и фото</span><div class="seg" id="segPhotoMode" role="group" aria-label="Как фото сочетается с полосами"></div></div>
+          <div class="field"><span class="lbl">Рамка</span><div class="seg" id="segPhotoShape" role="group" aria-label="Форма рамки"></div></div>
+          <div class="field"><span class="lbl">Тон</span><div class="seg" id="segPhotoTone" role="group" aria-label="Тонирование фото"></div></div>
+          <div class="rows" id="slPhoto"></div>
+          <button type="button" class="btn small" id="btnPhotoFit">Поставить в поле полос</button>
+          <p class="note">На макете фото тянется мышью, размер меняется за угол.</p>
+        </div>
+      </section>
+
+      <!-- ───────── COLOUR ───────── -->
+      <section class="pane" role="tabpanel" aria-label="Цвет" data-pane="color" hidden>
+        <div class="group"><h2>Тема</h2><div class="themes" id="themeCards"></div></div>
+        <div class="group"><h2>Как окрашены полосы</h2><div class="seg" id="segColorMode" role="group" aria-label="Окраска полос"></div><p class="note" id="colorModeNote"></p></div>
+        <div class="group">
+          <h2>Свои цвета</h2>
+          <div class="colors">
+            <label class="color">Фон<input type="color" id="colBg"></label>
+            <label class="color">Текст<input type="color" id="colInk"></label>
+            <label class="color">Карточка<input type="color" id="colCard"></label>
+            <label class="color">Полосы 1<input type="color" id="colP0"></label>
+            <label class="color">Полосы 2<input type="color" id="colP1"></label>
+            <label class="color">Полосы 3<input type="color" id="colP2"></label>
+          </div>
+          <div class="field"><span class="lbl">Фирменные и дополнительные цвета: щелчок ставит цвет в «Полосы 1», с Shift — в фон</span><div class="chips" id="chips"></div></div>
+        </div>
+        <div class="group">
+          <h2>Затухание</h2>
+          <div class="seg" id="segFade" role="group" aria-label="Куда тают полосы"></div>
+          <div class="rows" id="slFade"></div>
+        </div>
+        <div class="group">
+          <h2>Свечение</h2>
+          <div class="rows" id="slGlow"></div>
+          <p class="note" id="glowNote">Мягкий ореол вокруг полос. Лучше всего на тёмных темах.</p>
+        </div>
+      </section>
+
+      <!-- ───────── FORMAT ───────── -->
+      <section class="pane" role="tabpanel" aria-label="Формат" data-pane="format" hidden>
+        <div class="group"><h2>Формат</h2><div class="seg" id="segFormat" role="group" aria-label="Формат"></div><span class="mono" id="fmtInfo"></span></div>
+        <div class="group"><h2>Композиция</h2><div class="cards" id="layoutCards"></div><div class="rows" id="slLayout"></div></div>
+        <div class="group"><h2>Цикл анимации</h2><div class="seg" id="segLoop" role="group" aria-label="Длина цикла"></div>
+          <p>Все движения кратны циклу, поэтому видео и GIF замыкаются без шва.</p></div>
+        <div class="group"><h2>PNG</h2><div class="seg" id="segPngScale" role="group" aria-label="Размер PNG"></div>
+          <p>SVG сохраняет текущий кадр: полосы и текст в кривых, фото и логотип внутри файла.</p></div>
+        <div class="group"><h2>Видео</h2>
+          <div class="rows" id="vidOpts">
+            <div class="seg" id="segVfmt" role="group" aria-label="Формат видео"></div>
+            <div class="seg" id="segVfps" role="group" aria-label="Кадров в секунду"></div>
+            <div class="seg" id="segVq" role="group" aria-label="Качество видео"></div>
+          </div>
+          <span class="mono" id="vidInfo"></span>
+        </div>
+        <div class="group"><h2>GIF</h2>
+          <div class="seg" id="segGsize" role="group" aria-label="Размер GIF"></div>
+          <div class="seg" id="segGfps" role="group" aria-label="Кадров в секунду в GIF"></div>
+          <span class="mono" id="gifInfo"></span>
+        </div>
+      </section>
+    </div>
+  </aside>
+</div>
+<!--VENDOR-->
+<!--FONTS-->
+<!--APP-->

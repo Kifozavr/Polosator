@@ -1,0 +1,34 @@
+<!doctype html><meta charset=utf8><style>body{margin:0;background:#222;display:flex;flex-wrap:wrap;gap:6px;padding:6px;font:12px sans-serif;color:#ddd}figure{margin:0}canvas{display:block}</style>
+<body><script src="../src/engine.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const W = +params.get('w') || 480, H = +params.get('h') || 300, T = +(params.get('t') || 0.2);
+const theme = params.get('theme') || 'brand';
+const TH = {
+  brand: { bg: '#A872FF', pal: ['#76DEFE', '#FFA3E9', '#FFC568'] },
+  white: { bg: '#FFFFFF', pal: ['#A872FF', '#5A2BE0', '#FFA3E9'] },
+  night: { bg: '#130D26', pal: ['#A872FF', '#76DEFE', '#FFA3E9'] },
+};
+const th = TH[theme];
+const only = params.get('only'), gen = params.get('gen');
+for (const P of PRESETS) {
+  if (only && !only.split(',').includes(P.id)) continue;
+  if (gen && P.gen !== gen) continue;
+  const fig = document.createElement('figure');
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const cap = document.createElement('figcaption'); cap.textContent = P.name + ' · ' + (P.g.kind || P.gen);
+  fig.append(c, cap); document.body.append(fig);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = th.bg; ctx.fillRect(0, 0, W, H);
+  const g = Object.assign({}, BASE, P.g);
+  const F = { x: 0, y: 0, w: W, h: H }, U = Math.min(W, H);
+  const t0 = performance.now();
+  const strips = buildStrips(P.gen, g, T, F, U);
+  colorize(strips, P.color === 'sweep' ? 'solid' : P.color, rampLut(th.pal), th.pal, { shade: g.shade, fog: g.fog, dark: mixHex(th.bg, '#000000', 0.5), bg: th.bg });
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip();
+  ctx.globalAlpha = 1 - (g.glass || 0);
+  for (const s of strips) { ctx.fillStyle = s.col; ctx.beginPath(); pathStrip(ctx, s); ctx.fill(); }
+  ctx.restore();
+  cap.textContent += ' · ' + strips.length + ' · ' + (performance.now() - t0).toFixed(1) + 'ms';
+}
+</script>
